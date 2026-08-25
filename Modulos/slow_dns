@@ -11,11 +11,10 @@ SCOLOR='\033[0m'
 
 configdns() {
     interface=$(ip a | awk '/state UP/{print $2}' | cut -d: -f1)
-    iptables -F >/dev/null 2>&1
-    iptables -I INPUT -p udp --dport 5300 -j ACCEPT
-    iptables -t nat -I PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300
-    ip6tables -I INPUT -p udp --dport 5300 -j ACCEPT
-    ip6tables -t nat -I PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300
+    iptables -C INPUT -p udp --dport 5300 -j ACCEPT >/dev/null 2>&1 || iptables -I INPUT -p udp --dport 5300 -j ACCEPT
+    iptables -t nat -C PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300 >/dev/null 2>&1 || iptables -t nat -I PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300
+    ip6tables -C INPUT -p udp --dport 5300 -j ACCEPT >/dev/null 2>&1 || ip6tables -I INPUT -p udp --dport 5300 -j ACCEPT
+    ip6tables -t nat -C PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300 >/dev/null 2>&1 || ip6tables -t nat -I PREROUTING -i $interface -p udp --dport 53 -j REDIRECT --to-ports 5300
 }
 
 echo -e "${CORTITLE}           DARKSSH SLOWDNS (Beta)            ${SCOLOR}"
