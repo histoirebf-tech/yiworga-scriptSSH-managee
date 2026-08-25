@@ -146,6 +146,11 @@ user_report() {
 connection_mode() {
   echo -e "${CY}SSH:${C0} 22   ${CY}Dropbear:${C0} 443   ${CY}Stunnel-Dropbear:${C0} 444"
   echo -e "${CY}Stunnel-SSH:${C0} 445   ${CY}Squid:${C0} 8080   ${CY}Badvpn:${C0} 7300"
+  if [[ -e /etc/yiworgabf/dnstt.pub ]]; then
+    echo -e "${CY}OpenVPN:${C0} 1194 udp   ${CY}SlowDNS:${C0} 53 udp ($(cat /etc/yiworgabf/ns_domain 2>/dev/null))"
+  else
+    echo -e "${CY}OpenVPN/SlowDNS:${C0} non installes (option 20)"
+  fi
   pause
 }
 
