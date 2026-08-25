@@ -234,18 +234,18 @@ install_slowdns() {
   OVPN_PORT=1194
 
   echo -e "${CY}[1/6] Installation des paquets...${C0}"
-  apt update -y > /dev/null 2>&1
-  apt install -y openvpn easy-rsa golang-go iptables-persistent > /dev/null 2>&1
+  apt update -y
+  apt install -y openvpn easy-rsa golang-go iptables-persistent
 
   echo -e "${CY}[2/6] Generation des certificats OpenVPN...${C0}"
   mkdir -p /etc/openvpn/easy-rsa
   cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
   cd /etc/openvpn/easy-rsa
-  ./easyrsa init-pki > /dev/null 2>&1
-  ./easyrsa --batch build-ca nopass > /dev/null 2>&1
-  ./easyrsa --batch build-server-full server nopass > /dev/null 2>&1
-  ./easyrsa --batch build-client-full client nopass > /dev/null 2>&1
-  ./easyrsa gen-dh > /dev/null 2>&1
+  ./easyrsa init-pki
+  ./easyrsa --batch build-ca nopass
+  ./easyrsa --batch build-server-full server nopass
+  ./easyrsa --batch build-client-full client nopass
+  ./easyrsa gen-dh
   openvpn --genkey secret /etc/openvpn/ta.key
 
   cp pki/ca.crt pki/private/server.key pki/issued/server.crt pki/dh.pem /etc/openvpn/
@@ -275,19 +275,19 @@ EOF
   echo -e "${CY}[3/6] Configuration reseau...${C0}"
   echo 1 > /proc/sys/net/ipv4/ip_forward
   sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
-  sysctl -p > /dev/null 2>&1
+  sysctl -p
 
   iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o "$IFACE" -j MASQUERADE 2>/dev/null || \
   iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$IFACE" -j MASQUERADE
-  netfilter-persistent save > /dev/null 2>&1
+  netfilter-persistent save
 
-  systemctl enable openvpn@server > /dev/null 2>&1
+  systemctl enable openvpn@server
   systemctl restart openvpn@server
   echo -e "${CG}OpenVPN demarre${C0}"
 
   echo -e "${CY}[4/6] Telechargement de SlowDNS (peut prendre 1-2 min)...${C0}"
   rm -rf /opt/dnstt
-  timeout 120 git clone https://www.bamsoftware.com/git/dnstt.git /opt/dnstt
+  timeout 120 git clone --progress https://www.bamsoftware.com/git/dnstt.git /opt/dnstt
   if [[ ! -d /opt/dnstt ]]; then
     echo -e "${CR}Echec du telechargement de SlowDNS, verifie la connexion internet du VPS${C0}"
     pause
@@ -297,7 +297,7 @@ EOF
   echo -e "${CY}[5/6] Compilation de SlowDNS (peut prendre plusieurs minutes)...${C0}"
   go env -w GOPROXY=https://goproxy.io,direct
   cd /opt/dnstt/dnstt-server
-  timeout 300 go build
+  timeout 300 go build -v
   if [[ ! -f dnstt-server ]]; then
     echo -e "${CR}Echec de compilation SlowDNS${C0}"
     pause
@@ -322,7 +322,7 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable dnstt > /dev/null 2>&1
+  systemctl enable dnstt
   systemctl restart dnstt
 
   echo -e "${CG}OpenVPN installe sur port $OVPN_PORT udp${C0}"
