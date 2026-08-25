@@ -1,0 +1,254 @@
+#!/bin/bash
+DB=/etc/yiworgabf/users.db
+CFG=/etc/yiworgabf/config
+IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+mkdir -p /etc/yiworgabf
+touch $DB
+[[ ! -e $CFG ]] && echo "USER_LIMIT=off" > $CFG
+source $CFG
+
+C0='\033[0m'
+CG='\033[1;32m'
+CC='\033[1;36m'
+CY='\033[1;33m'
+CR='\033[1;31m'
+CB='\033[1;34m'
+
+banner() {
+  clear
+  IP=$(curl -s ifconfig.me)
+  OS=$(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+  RAMTOT=$(free -m | awk '/Mem:/{print $2}')
+  RAMUSE=$(free -m | awk '/Mem:/{printf "%.0f", $3/$2*100}')
+  CPU=$(nproc)
+  CPUUSE=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'.' -f1)
+  ONLINE=$(who | grep -c pts)
+  TOTAL=$(wc -l < $DB)
+  EXPIRED=0
+  while read -r u e l; do
+    [[ -z $u ]] && continue
+    [[ $(date -d "$e" +%s) -lt $(date +%s) ]] && ((EXPIRED++))
+  done < $DB
+  echo -e "${CC}System information as of $(date)${C0}"
+  echo ""
+  echo -e "  System load: $(uptime | awk -F'load average:' '{print $2}' | cut -d',' -f1)          Processes: $(ps aux | wc -l)"
+  echo -e "  Usage of /:  $(df -h / | awk 'NR==2{print $5}')                  Users logged in: $ONLINE"
+  echo -e "  Memory usage: ${RAMUSE}%              IPv4 address: $IP"
+  echo -e "${CB}════════════════════════════════════════════${C0}"
+  echo -e "${CB}          YIWORGABF SSH MANAGER${C0}"
+  echo -e "${CB}════════════════════════════════════════════${C0}"
+  echo -e "${CY}BURKINA FASO${C0}   |   Telegram: @YiworgaBF"
+  echo -e "${CB}════════════════════════════════════════════${C0}"
+  echo -e "${CG}OS: $OS   RAM: ${RAMUSE}% de ${RAMTOT}Mi   CPU: ${CPU} coeurs${C0}"
+  echo -e "${CG}Online: $ONLINE     Expired: $EXPIRED     Total: $TOTAL${C0}"
+  echo -e "${CB}════════════════════════════════════════════${C0}"
+  echo -e "${CY}[01]${C0} CREATE USER        ${CY}[11]${C0} SPEEDTEST"
+  echo -e "${CY}[02]${C0} CRIAR TESTE        ${CY}[12]${C0} BANNER"
+  echo -e "${CY}[03]${C0} REMOVE USER        ${CY}[13]${C0} TRAFFIC"
+  echo -e "${CY}[04]${C0} MONITOR ONLINE     ${CY}[14]${C0} OTIMIZAR"
+  echo -e "${CY}[05]${C0} CHANGE DATE        ${CY}[15]${C0} BACKUP"
+  echo -e "${CY}[06]${C0} CHANGE LIMIT       ${CY}[16]${C0} USER-LIMIT: $USER_LIMIT"
+  echo -e "${CY}[07]${C0} CHANGE PASSWORD    ${CY}[17]${C0} INFO VPS"
+  echo -e "${CY}[08]${C0} REMOVE EXPIRED     ${CY}[18]${C0} RESTART SERVICES"
+  echo -e "${CY}[09]${C0} USER REPORT        ${CY}[19]${C0} UNINSTALL"
+  echo -e "${CY}[10]${C0} CONNECTION MODE    ${CY}[00]${C0} GO OUT"
+  echo -e "${CB}════════════════════════════════════════════${C0}"
+}
+
+pause() { read -p "Appuie sur ENTREE pour continuer..." x; }
+
+create_user() {
+  read -p "Utilisateur: " user
+  read -p "Mot de passe: " pass
+  read -p "Jours de validite: " dias
+  read -p "Limite de connexions: " lim
+  exp=$(date -d "+$dias days" +%Y-%m-%d)
+  useradd -e "$exp" -M -s /bin/false "$user"
+  echo -e "$pass\n$pass" | passwd "$user" > /dev/null 2>&1
+  echo "$user $exp $lim" >> $DB
+  echo -e "${CG}Utilisateur $user cree, expire le $exp, limite $lim${C0}"
+  pause
+}
+
+create_test_user() {
+  user="teste$(shuf -i 100-999 -n 1)"
+  pass=$(shuf -i 10000-99999 -n 1)
+  exp=$(date -d "+1 days" +%Y-%m-%d)
+  useradd -e "$exp" -M -s /bin/false "$user"
+  echo -e "$pass\n$pass" | passwd "$user" > /dev/null 2>&1
+  echo "$user $exp 1" >> $DB
+  echo -e "${CG}Test cree: $user / $pass / expire $exp${C0}"
+  pause
+}
+
+remove_user() {
+  read -p "Utilisateur a supprimer: " user
+  userdel -f "$user" 2>/dev/null
+  sed -i "/^$user /d" $DB
+  echo -e "${CG}Utilisateur $user supprime${C0}"
+  pause
+}
+
+monitor_online() {
+  echo -e "${CY}Utilisateurs connectes:${C0}"
+  who | grep pts | awk '{print $1, $3, $4}'
+  pause
+}
+
+change_date() {
+  read -p "Utilisateur: " user
+  read -p "Nouvelle date (YYYY-MM-DD): " newdate
+  chage -E "$newdate" "$user"
+  sed -i "s/^$user .*/$user $newdate $(grep "^$user " $DB | awk '{print $3}')/" $DB
+  echo -e "${CG}Date mise a jour pour $user${C0}"
+  pause
+}
+
+change_limit() {
+  read -p "Utilisateur: " user
+  read -p "Nouvelle limite: " newlim
+  sed -i "s/^$user \([^ ]*\) .*/$user \1 $newlim/" $DB
+  echo -e "${CG}Limite mise a jour pour $user${C0}"
+  pause
+}
+
+change_password() {
+  read -p "Utilisateur: " user
+  read -p "Nouveau mot de passe: " pass
+  echo -e "$pass\n$pass" | passwd "$user" > /dev/null 2>&1
+  echo -e "${CG}Mot de passe change pour $user${C0}"
+  pause
+}
+
+remove_expired() {
+  now=$(date +%s)
+  while read -r u e l; do
+    [[ -z $u ]] && continue
+    if [[ $(date -d "$e" +%s) -lt $now ]]; then
+      userdel -f "$u" 2>/dev/null
+      sed -i "/^$u /d" $DB
+      echo -e "${CR}Supprime: $u (expire le $e)${C0}"
+    fi
+  done < $DB
+  pause
+}
+
+user_report() {
+  printf "%-15s %-12s %-8s\n" "UTILISATEUR" "EXPIRE" "LIMITE"
+  while read -r u e l; do
+    [[ -z $u ]] && continue
+    printf "%-15s %-12s %-8s\n" "$u" "$e" "$l"
+  done < $DB
+  pause
+}
+
+connection_mode() {
+  echo -e "${CY}SSH:${C0} 22   ${CY}Dropbear:${C0} 443   ${CY}Stunnel-Dropbear:${C0} 444"
+  echo -e "${CY}Stunnel-SSH:${C0} 445   ${CY}Squid:${C0} 8080   ${CY}Badvpn:${C0} 7300"
+  pause
+}
+
+speedtest_run() {
+  command -v speedtest-cli >/dev/null || apt install -y speedtest-cli
+  speedtest-cli --simple
+  pause
+}
+
+banner_edit() {
+  read -p "Nouveau texte du banner: " txt
+  echo "$txt" > /etc/issue.net
+  grep -q "^Banner" /etc/ssh/sshd_config && sed -i "s|^Banner.*|Banner /etc/issue.net|" /etc/ssh/sshd_config || echo "Banner /etc/issue.net" >> /etc/ssh/sshd_config
+  systemctl restart ssh
+  echo -e "${CG}Banner mis a jour${C0}"
+  pause
+}
+
+traffic_show() {
+  command -v vnstat >/dev/null || { apt install -y vnstat; systemctl enable --now vnstat; sleep 2; }
+  vnstat -i "$IFACE"
+  pause
+}
+
+otimizar() {
+  apt autoremove -y > /dev/null 2>&1
+  apt autoclean -y > /dev/null 2>&1
+  rm -rf /tmp/* > /dev/null 2>&1
+  systemctl restart dropbear stunnel4 squid badvpn
+  echo -e "${CG}Systeme optimise et services redemarres${C0}"
+  pause
+}
+
+backup_run() {
+  dest="/root/backup-$(date +%Y%m%d-%H%M).tar.gz"
+  tar -czf "$dest" /etc/yiworgabf /etc/passwd /etc/shadow 2>/dev/null
+  echo -e "${CG}Backup cree: $dest${C0}"
+  pause
+}
+
+toggle_user_limit() {
+  if [[ $USER_LIMIT == "off" ]]; then
+    sed -i "s/USER_LIMIT=off/USER_LIMIT=on/" $CFG
+    (crontab -l 2>/dev/null; echo "*/2 * * * * /usr/local/bin/limiter") | sort -u | crontab -
+    echo -e "${CG}Limiteur de connexions active${C0}"
+  else
+    sed -i "s/USER_LIMIT=on/USER_LIMIT=off/" $CFG
+    crontab -l 2>/dev/null | grep -v limiter | crontab -
+    echo -e "${CG}Limiteur de connexions desactive${C0}"
+  fi
+  pause
+}
+
+info_vps() {
+  IP=$(curl -s ifconfig.me)
+  echo -e "${CY}IP:${C0} $IP"
+  echo -e "${CY}OS:${C0} $(lsb_release -ds 2>/dev/null)"
+  echo -e "${CY}Uptime:${C0} $(uptime -p)"
+  echo -e "${CY}Disque:${C0} $(df -h / | awk 'NR==2{print $3"/"$2}')"
+  echo -e "${CY}RAM:${C0} $(free -h | awk '/Mem:/{print $3"/"$2}')"
+  pause
+}
+
+restart_services() {
+  systemctl restart dropbear stunnel4 squid badvpn ssh
+  echo -e "${CG}Services redemarres${C0}"
+  pause
+}
+
+uninstall_all() {
+  read -p "Confirmer la desinstallation complete (o/n): " conf
+  [[ $conf != "o" ]] && return
+  systemctl stop dropbear stunnel4 squid badvpn
+  systemctl disable dropbear stunnel4 squid badvpn
+  apt remove --purge -y dropbear stunnel4 squid
+  rm -rf /etc/yiworgabf /usr/local/bin/badvpn-udpgw /etc/systemd/system/badvpn.service /usr/local/bin/menu
+  echo -e "${CR}Desinstallation terminee${C0}"
+  exit 0
+}
+
+while true; do
+  banner
+  read -p "WHAT DO YOU WANT TO DO ?? : " opt
+  case "$opt" in
+    1) create_user ;;
+    2) create_test_user ;;
+    3) remove_user ;;
+    4) monitor_online ;;
+    5) change_date ;;
+    6) change_limit ;;
+    7) change_password ;;
+    8) remove_expired ;;
+    9) user_report ;;
+    10) connection_mode ;;
+    11) speedtest_run ;;
+    12) banner_edit ;;
+    13) traffic_show ;;
+    14) otimizar ;;
+    15) backup_run ;;
+    16) toggle_user_limit ;;
+    17) info_vps ;;
+    18) restart_services ;;
+    19) uninstall_all ;;
+    0) clear; exit 0 ;;
+    *) ;;
+  esac
+done
