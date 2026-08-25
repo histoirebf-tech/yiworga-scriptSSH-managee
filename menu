@@ -234,6 +234,9 @@ install_slowdns() {
   OVPN_PORT=1194
 
   echo -e "${CY}[1/6] Installation des paquets...${C0}"
+  export DEBIAN_FRONTEND=noninteractive
+  echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+  echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
   apt update -y
   apt install -y openvpn easy-rsa golang-go iptables-persistent
 
