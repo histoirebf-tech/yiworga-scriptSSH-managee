@@ -51,7 +51,8 @@ banner() {
   echo -e "${CY}[07]${C0} CHANGE PASSWORD    ${CY}[17]${C0} INFO VPS"
   echo -e "${CY}[08]${C0} REMOVE EXPIRED     ${CY}[18]${C0} RESTART SERVICES"
   echo -e "${CY}[09]${C0} USER REPORT        ${CY}[19]${C0} UNINSTALL"
-  echo -e "${CY}[10]${C0} CONNECTION MODE    ${CY}[00]${C0} GO OUT"
+  echo -e "${CY}[10]${C0} CONNECTION MODE    ${CY}[20]${C0} SLOWDNS + OPENVPN"
+  echo -e "${CY}                       ${CY}[00]${C0} GO OUT"
   echo -e "${CB}════════════════════════════════════════════${C0}"
 }
 
@@ -214,6 +215,100 @@ restart_services() {
   pause
 }
 
+install_slowdns() {
+  if [[ -e /etc/yiworgabf/dnstt.pub ]]; then
+    echo -e "${CY}SlowDNS deja installe.${C0}"
+    echo -e "${CY}Domaine:${C0} $(cat /etc/yiworgabf/ns_domain 2>/dev/null)"
+    echo -e "${CY}Cle publique:${C0} $(cat /etc/yiworgabf/dnstt.pub)"
+    pause
+    return
+  fi
+
+  read -p "Ton domaine NS (ex: ns.tondomaine.com): " ns_domain
+  echo "$ns_domain" > /etc/yiworgabf/ns_domain
+  OVPN_PORT=1194
+
+  apt update -y > /dev/null 2>&1
+  apt install -y openvpn easy-rsa golang-go iptables-persistent > /dev/null 2>&1
+
+  mkdir -p /etc/openvpn/easy-rsa
+  cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
+  cd /etc/openvpn/easy-rsa
+  ./easyrsa init-pki > /dev/null 2>&1
+  ./easyrsa --batch build-ca nopass > /dev/null 2>&1
+  ./easyrsa --batch build-server-full server nopass > /dev/null 2>&1
+  ./easyrsa --batch build-client-full client nopass > /dev/null 2>&1
+  ./easyrsa gen-dh > /dev/null 2>&1
+  openvpn --genkey secret /etc/openvpn/ta.key
+
+  cp pki/ca.crt pki/private/server.key pki/issued/server.crt pki/dh.pem /etc/openvpn/
+
+  cat > /etc/openvpn/server.conf <<EOF
+port $OVPN_PORT
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.pem
+tls-auth ta.key 0
+cipher AES-256-GCM
+auth SHA256
+server 10.8.0.0 255.255.255.0
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+keepalive 10 120
+persist-key
+persist-tun
+status /var/log/openvpn-status.log
+verb 3
+explicit-exit-notify 1
+EOF
+
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+  sysctl -p > /dev/null 2>&1
+
+  iptables -t nat -C POSTROUTING -s 10.8.0.0/24 -o "$IFACE" -j MASQUERADE 2>/dev/null || \
+  iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$IFACE" -j MASQUERADE
+  netfilter-persistent save > /dev/null 2>&1
+
+  systemctl enable openvpn@server > /dev/null 2>&1
+  systemctl restart openvpn@server
+
+  rm -rf /opt/dnstt
+  git clone https://www.bamsoftware.com/git/dnstt.git /opt/dnstt > /dev/null 2>&1
+  cd /opt/dnstt/dnstt-server
+  go build
+  cp dnstt-server /usr/local/bin/dnstt-server
+
+  /usr/local/bin/dnstt-server -gen-key -privkey-file /etc/yiworgabf/dnstt.key -pubkey-file /etc/yiworgabf/dnstt.pub
+
+  cat > /etc/systemd/system/dnstt.service <<EOF
+[Unit]
+Description=DNSTT SlowDNS
+After=network.target openvpn@server.service
+
+[Service]
+ExecStart=/usr/local/bin/dnstt-server -udp :53 -privkey-file /etc/yiworgabf/dnstt.key $ns_domain 127.0.0.1:$OVPN_PORT
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable dnstt > /dev/null 2>&1
+  systemctl restart dnstt
+
+  echo -e "${CG}OpenVPN installe sur port $OVPN_PORT udp${C0}"
+  echo -e "${CG}SlowDNS installe, domaine: $ns_domain${C0}"
+  echo -e "${CG}Cle publique SlowDNS:${C0}"
+  cat /etc/yiworgabf/dnstt.pub
+  echo -e "${CY}Cree un A record pour $ns_domain vers l'IP de ce VPS + delegation NS chez ton registrar${C0}"
+  pause
+}
+
 uninstall_all() {
   read -p "Confirmer la desinstallation complete (o/n): " conf
   [[ $conf != "o" ]] && return
@@ -248,6 +343,7 @@ while true; do
     17) info_vps ;;
     18) restart_services ;;
     19) uninstall_all ;;
+    20) install_slowdns ;;
     0) clear; exit 0 ;;
     *) ;;
   esac
