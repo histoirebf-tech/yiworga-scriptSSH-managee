@@ -233,9 +233,11 @@ install_slowdns() {
   echo "$ns_domain" > /etc/yiworgabf/ns_domain
   OVPN_PORT=1194
 
+  echo -e "${CY}[1/6] Installation des paquets...${C0}"
   apt update -y > /dev/null 2>&1
   apt install -y openvpn easy-rsa golang-go iptables-persistent > /dev/null 2>&1
 
+  echo -e "${CY}[2/6] Generation des certificats OpenVPN...${C0}"
   mkdir -p /etc/openvpn/easy-rsa
   cp -r /usr/share/easy-rsa/* /etc/openvpn/easy-rsa/
   cd /etc/openvpn/easy-rsa
@@ -270,6 +272,7 @@ verb 3
 explicit-exit-notify 1
 EOF
 
+  echo -e "${CY}[3/6] Configuration reseau...${C0}"
   echo 1 > /proc/sys/net/ipv4/ip_forward
   sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
   sysctl -p > /dev/null 2>&1
@@ -280,13 +283,29 @@ EOF
 
   systemctl enable openvpn@server > /dev/null 2>&1
   systemctl restart openvpn@server
+  echo -e "${CG}OpenVPN demarre${C0}"
 
+  echo -e "${CY}[4/6] Telechargement de SlowDNS (peut prendre 1-2 min)...${C0}"
   rm -rf /opt/dnstt
-  git clone https://www.bamsoftware.com/git/dnstt.git /opt/dnstt > /dev/null 2>&1
+  timeout 120 git clone https://www.bamsoftware.com/git/dnstt.git /opt/dnstt
+  if [[ ! -d /opt/dnstt ]]; then
+    echo -e "${CR}Echec du telechargement de SlowDNS, verifie la connexion internet du VPS${C0}"
+    pause
+    return
+  fi
+
+  echo -e "${CY}[5/6] Compilation de SlowDNS (peut prendre plusieurs minutes)...${C0}"
+  go env -w GOPROXY=https://goproxy.io,direct
   cd /opt/dnstt/dnstt-server
-  go build
+  timeout 300 go build
+  if [[ ! -f dnstt-server ]]; then
+    echo -e "${CR}Echec de compilation SlowDNS${C0}"
+    pause
+    return
+  fi
   cp dnstt-server /usr/local/bin/dnstt-server
 
+  echo -e "${CY}[6/6] Generation des cles et demarrage...${C0}"
   /usr/local/bin/dnstt-server -gen-key -privkey-file /etc/yiworgabf/dnstt.key -pubkey-file /etc/yiworgabf/dnstt.pub
 
   cat > /etc/systemd/system/dnstt.service <<EOF
